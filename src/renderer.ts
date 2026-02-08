@@ -4,6 +4,7 @@ import {
   ChartConfiguration,
   CategoryScale,
   LinearScale,
+  LogarithmicScale,
   BarElement,
   LineElement,
   PointElement,
@@ -14,12 +15,14 @@ import {
   Legend,
   Filler,
 } from 'chart.js';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
 import { applyColorPalette } from './colors.js';
 
 // Register all Chart.js components we need
 Chart.register(
   CategoryScale,
   LinearScale,
+  LogarithmicScale,
   BarElement,
   LineElement,
   PointElement,
@@ -29,6 +32,7 @@ Chart.register(
   Tooltip,
   Legend,
   Filler,
+  ChartDataLabels,
 );
 
 export interface ChartInput {
@@ -54,30 +58,52 @@ export interface ChartInput {
     yAxisLabel?: string;
     stacked?: boolean;
     indexAxis?: 'x' | 'y';
+    yAxisType?: 'linear' | 'logarithmic';
+    beginAtZero?: boolean;
+    tension?: number;
+    showDataLabels?: boolean;
     [key: string]: unknown;
   };
+  outputFormat?: 'png' | 'svg';
   outputPath?: string;
   autoOpen?: boolean;
 }
 
-export async function renderChart(
-  input: ChartInput,
-): Promise<{ buffer: Buffer; base64: string }> {
+export type RenderResult = {
+  buffer: Buffer;
+  base64: string;
+  mimeType: 'image/png' | 'image/svg+xml';
+  extension: 'png' | 'svg';
+};
+
+export async function renderChart(input: ChartInput): Promise<RenderResult> {
   const width = input.options?.width ?? 800;
   const height = input.options?.height ?? 600;
   const bgColor = input.options?.backgroundColor ?? 'white';
+  const format = input.outputFormat ?? 'png';
+  const isSvg = format === 'svg';
 
   const chartJSNodeCanvas = new ChartJSNodeCanvas({
     width,
     height,
     backgroundColour: bgColor,
+    ...(isSvg ? { type: 'svg' } : {}),
   });
 
   const config = buildChartConfig(input);
-  const buffer = await chartJSNodeCanvas.renderToBuffer(config);
+
+  const buffer = isSvg
+    ? chartJSNodeCanvas.renderToBufferSync(config, 'image/svg+xml')
+    : await chartJSNodeCanvas.renderToBuffer(config);
+
   const base64 = buffer.toString('base64');
 
-  return { buffer, base64 };
+  return {
+    buffer,
+    base64,
+    mimeType: isSvg ? 'image/svg+xml' : 'image/png',
+    extension: isSvg ? 'svg' : 'png',
+  };
 }
 
 function resolveChartJsType(
@@ -101,6 +127,14 @@ function buildChartConfig(input: ChartInput): ChartConfiguration {
   if (input.type === 'area') {
     for (const ds of datasets) {
       ds.fill = ds.fill ?? true;
+    }
+  }
+
+  // Apply tension to line/area datasets
+  const tension = input.options?.tension;
+  if (tension !== undefined && ['line', 'area'].includes(input.type)) {
+    for (const ds of datasets) {
+      ds.tension = ds.tension ?? tension;
     }
   }
 
@@ -140,6 +174,16 @@ function buildOptions(input: ChartInput): ChartConfiguration['options'] {
   plugins.legend = {
     display: opts.showLegend ?? true,
   };
+
+  plugins.datalabels = opts.showDataLabels
+    ? {
+        display: true,
+        color: '#333',
+        font: { weight: 'bold' as const },
+        anchor: 'end' as const,
+        align: 'top' as const,
+      }
+    : { display: false };
 
   const result: Record<string, unknown> = {
     responsive: false,
@@ -190,6 +234,12 @@ function buildScales(
   }
   if (opts.stacked) {
     yScale.stacked = true;
+  }
+  if (opts.yAxisType) {
+    yScale.type = opts.yAxisType;
+  }
+  if (opts.beginAtZero) {
+    yScale.beginAtZero = true;
   }
   if (Object.keys(yScale).length > 0) {
     scales.y = yScale;

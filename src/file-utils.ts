@@ -6,9 +6,12 @@ import { platform } from 'os';
 
 const DEFAULT_OUTPUT_DIR = join(process.cwd(), 'charts');
 
-export function getDefaultOutputPath(chartType: string): string {
+export function getDefaultOutputPath(
+  chartType: string,
+  extension: string = 'png',
+): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  return join(DEFAULT_OUTPUT_DIR, `${chartType}-${timestamp}.png`);
+  return join(DEFAULT_OUTPUT_DIR, `${chartType}-${timestamp}.${extension}`);
 }
 
 export async function saveChart(buffer: Buffer, outputPath: string): Promise<void> {

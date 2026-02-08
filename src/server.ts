@@ -1,12 +1,17 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { createRequire } from 'module';
 import { renderChart, ChartInput } from './renderer.js';
+import { validateChartInput } from './validation.js';
 import { saveChart, openChart, getDefaultOutputPath } from './file-utils.js';
+
+const require = createRequire(import.meta.url);
+const { version } = require('../package.json');
 
 export function createServer(): McpServer {
   const server = new McpServer({
     name: 'mcp-visual-chart',
-    version: '0.1.0',
+    version,
   });
 
   const chartTypeEnum = z.enum([
@@ -24,7 +29,7 @@ export function createServer(): McpServer {
 
   server.tool(
     'create_chart',
-    'Create a chart visualization. Renders a Chart.js chart as PNG, saves to disk, and returns the image. Supports: bar, line, pie, doughnut, scatter, area, radar, bubble, polarArea, histogram.',
+    'Create a chart visualization. Renders a Chart.js chart as PNG or SVG, saves to disk, and returns the image. Supports: bar, line, pie, doughnut, scatter, area, radar, bubble, polarArea, histogram.',
     {
       type: chartTypeEnum.describe('Chart type'),
       labels: z
@@ -76,14 +81,34 @@ export function createServer(): McpServer {
             .enum(['x', 'y'])
             .optional()
             .describe('Set to "y" for horizontal bar chart'),
+          yAxisType: z
+            .enum(['linear', 'logarithmic'])
+            .optional()
+            .describe('Y-axis scale type (default linear)'),
+          beginAtZero: z
+            .boolean()
+            .optional()
+            .describe('Force y-axis to start at zero (default false)'),
+          tension: z
+            .number()
+            .optional()
+            .describe('Line smoothing: 0 = straight (default), 0.4 = smooth curves. For line/area charts.'),
+          showDataLabels: z
+            .boolean()
+            .optional()
+            .describe('Show data values directly on chart elements (default false)'),
         })
         .passthrough()
         .optional()
         .describe('Chart display options'),
+      outputFormat: z
+        .enum(['png', 'svg'])
+        .optional()
+        .describe('Output format: png (default) or svg'),
       outputPath: z
         .string()
         .optional()
-        .describe('Custom file path to save the chart PNG'),
+        .describe('Custom file path to save the chart'),
       autoOpen: z
         .boolean()
         .optional()
@@ -96,14 +121,19 @@ export function createServer(): McpServer {
           labels: args.labels,
           datasets: args.datasets,
           options: args.options,
+          outputFormat: args.outputFormat as ChartInput['outputFormat'],
           outputPath: args.outputPath,
           autoOpen: args.autoOpen,
         };
 
-        const { buffer, base64 } = await renderChart(input);
+        validateChartInput(input);
 
-        const outputPath = input.outputPath || getDefaultOutputPath(input.type);
-        await saveChart(buffer, outputPath);
+        const result = await renderChart(input);
+
+        const outputPath =
+          input.outputPath ||
+          getDefaultOutputPath(input.type, result.extension);
+        await saveChart(result.buffer, outputPath);
 
         if (input.autoOpen !== false) {
           openChart(outputPath);
@@ -113,8 +143,8 @@ export function createServer(): McpServer {
           content: [
             {
               type: 'image' as const,
-              data: base64,
-              mimeType: 'image/png' as const,
+              data: result.base64,
+              mimeType: result.mimeType,
             },
             {
               type: 'text' as const,
