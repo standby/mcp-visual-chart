@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { createRequire } from 'module';
 import { renderChart, ChartInput } from './renderer.js';
 import { validateChartInput } from './validation.js';
+import { renderVegaChart, VegaChartInput } from './vega-renderer.js';
+import { validateVegaInput } from './vega-validation.js';
 import { saveChart, openChart, getDefaultOutputPath } from './file-utils.js';
 
 const require = createRequire(import.meta.url);
@@ -158,6 +160,96 @@ export function createServer(): McpServer {
             {
               type: 'text' as const,
               text: `Error creating chart: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    'create_vega_chart',
+    `Create a chart from a Vega-Lite specification. Renders a Vega-Lite spec as PNG or SVG, saves to disk, and returns the image.
+
+Example spec: {"mark": "bar", "data": {"values": [{"a": "A", "b": 28}, {"a": "B", "b": 55}]}, "encoding": {"x": {"field": "a", "type": "nominal"}, "y": {"field": "b", "type": "quantitative"}}}
+
+Supports all Vega-Lite mark types: bar, line, area, point, circle, square, rect, arc, text, tick, rule, geoshape, trail, boxplot, errorbar, errorband. Supports layers, facets, concatenation, and repeats.`,
+    {
+      spec: z
+        .record(z.string(), z.unknown())
+        .describe(
+          'Vega-Lite specification as a JSON object. Must include "mark" and "encoding" for simple charts, or use "layer"/"hconcat"/"vconcat" for compositions.',
+        ),
+      width: z
+        .number()
+        .optional()
+        .describe('Override chart width in pixels (default: from spec or 400)'),
+      height: z
+        .number()
+        .optional()
+        .describe('Override chart height in pixels (default: from spec or 300)'),
+      background: z
+        .string()
+        .optional()
+        .describe('Override background color (default: from spec or "white")'),
+      outputFormat: z
+        .enum(['png', 'svg'])
+        .optional()
+        .describe('Output format: png (default) or svg'),
+      outputPath: z
+        .string()
+        .optional()
+        .describe('Custom file path to save the chart'),
+      autoOpen: z
+        .boolean()
+        .optional()
+        .describe('Open chart in default viewer (default true)'),
+    },
+    async (args) => {
+      try {
+        const input: VegaChartInput = {
+          spec: args.spec,
+          width: args.width,
+          height: args.height,
+          background: args.background,
+          outputFormat: args.outputFormat as VegaChartInput['outputFormat'],
+          outputPath: args.outputPath,
+          autoOpen: args.autoOpen,
+        };
+
+        validateVegaInput(input);
+
+        const result = await renderVegaChart(input);
+
+        const outputPath =
+          input.outputPath ||
+          getDefaultOutputPath('vega', result.extension);
+        await saveChart(result.buffer, outputPath);
+
+        if (input.autoOpen !== false) {
+          openChart(outputPath);
+        }
+
+        return {
+          content: [
+            {
+              type: 'image' as const,
+              data: result.base64,
+              mimeType: result.mimeType,
+            },
+            {
+              type: 'text' as const,
+              text: `Chart saved to: ${outputPath}`,
+            },
+          ],
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Error creating Vega-Lite chart: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
           isError: true,

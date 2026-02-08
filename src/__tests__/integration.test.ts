@@ -27,12 +27,13 @@ describe('MCP integration', () => {
     await cleanup();
   });
 
-  it('lists the create_chart tool', async () => {
+  it('lists both tools', async () => {
     const { tools } = await client.listTools();
 
-    expect(tools).toHaveLength(1);
-    expect(tools[0].name).toBe('create_chart');
-    expect(tools[0].inputSchema).toBeDefined();
+    expect(tools).toHaveLength(2);
+    const names = tools.map((t) => t.name);
+    expect(names).toContain('create_chart');
+    expect(names).toContain('create_vega_chart');
   });
 
   it('creates a bar chart and returns image content', async () => {
@@ -106,6 +107,92 @@ describe('MCP integration', () => {
 
     const textContent = result.content[0] as { type: string; text: string };
     expect(textContent.text).toContain('bubble charts require');
+  });
+
+  it('creates a Vega-Lite bar chart and returns image content', async () => {
+    const result = await client.callTool({
+      name: 'create_vega_chart',
+      arguments: {
+        spec: {
+          mark: 'bar',
+          data: {
+            values: [
+              { a: 'A', b: 28 },
+              { a: 'B', b: 55 },
+            ],
+          },
+          encoding: {
+            x: { field: 'a', type: 'nominal' },
+            y: { field: 'b', type: 'quantitative' },
+          },
+        },
+        autoOpen: false,
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toHaveLength(2);
+
+    const imageContent = result.content[0] as {
+      type: string;
+      data: string;
+      mimeType: string;
+    };
+    expect(imageContent.type).toBe('image');
+    expect(imageContent.mimeType).toBe('image/png');
+    expect(imageContent.data.length).toBeGreaterThan(100);
+
+    const textContent = result.content[1] as { type: string; text: string };
+    expect(textContent.text).toContain('Chart saved to:');
+  });
+
+  it('creates a Vega-Lite SVG chart', async () => {
+    const result = await client.callTool({
+      name: 'create_vega_chart',
+      arguments: {
+        spec: {
+          mark: 'point',
+          data: {
+            values: [
+              { x: 1, y: 2 },
+              { x: 3, y: 4 },
+            ],
+          },
+          encoding: {
+            x: { field: 'x', type: 'quantitative' },
+            y: { field: 'y', type: 'quantitative' },
+          },
+        },
+        outputFormat: 'svg',
+        autoOpen: false,
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const imageContent = result.content[0] as {
+      type: string;
+      data: string;
+      mimeType: string;
+    };
+    expect(imageContent.mimeType).toBe('image/svg+xml');
+    const svgString = Buffer.from(imageContent.data, 'base64').toString(
+      'utf-8',
+    );
+    expect(svgString).toContain('<svg');
+  });
+
+  it('returns an error for invalid Vega-Lite spec', async () => {
+    const result = await client.callTool({
+      name: 'create_vega_chart',
+      arguments: {
+        spec: { notAValidSpec: true },
+        autoOpen: false,
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    const textContent = result.content[0] as { type: string; text: string };
+    expect(textContent.text).toContain('Error creating Vega-Lite chart');
   });
 
   it('returns an error for empty datasets', async () => {
