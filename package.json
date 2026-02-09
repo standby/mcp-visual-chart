@@ -28,9 +28,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anthropics/mcp-visual-chart.git"
+    "url": "git+https://github.com/standby/mcp-visual-chart.git"
   },
-  "homepage": "https://github.com/anthropics/mcp-visual-chart#readme",
+  "homepage": "https://github.com/standby/mcp-visual-chart#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "canvas": "^3.2.1",
